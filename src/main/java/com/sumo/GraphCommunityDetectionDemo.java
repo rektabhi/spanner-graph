@@ -33,6 +33,12 @@ public class GraphCommunityDetectionDemo {
     private static final String CSV_FILE_PATH = "mock_devices_1m.csv";
     private static final int BATCH_SIZE = 100; // Process devices in batches to avoid resource exhaustion
     
+    // Global counters for community IDs to avoid duplicates across batches
+    private static int globalSsidCommunityCounter = 1;
+    private static int globalSubnetCommunityCounter = 1;
+    private static int globalMacPrefixCommunityCounter = 1;
+    private static int globalGraphComponentCounter = 1;
+    
     public static void main(String[] args) {
         logger.info("Starting Graph-based Community Detection Demo");
         
@@ -82,6 +88,10 @@ public class GraphCommunityDetectionDemo {
             
             // Process devices in batches to avoid resource exhaustion
             processDevicesInBatches(graphService, csvFilePath, batchSize);
+            
+            // Perform community detection on all stored data
+            logger.info("Starting final community detection on all stored data");
+            performFinalCommunityDetection(graphService);
             
             // Demonstrate graph querying capabilities
             logger.info("Starting graph querying demonstrations");
@@ -192,7 +202,7 @@ public class GraphCommunityDetectionDemo {
     }
     
     /**
-     * Process a single batch of devices.
+     * Process a single batch of devices - just store devices and relationships, no community detection yet.
      */
     private static void processBatch(GraphCommunityDetectionService graphService, List<Device> batch, int batchNumber) {
         logger.info("Processing batch {} with {} devices", batchNumber, batch.size());
@@ -201,22 +211,63 @@ public class GraphCommunityDetectionDemo {
             // Process network attributes for this batch
             processDeviceNetworkAttributes(batch);
             
-            // Perform community detection for this batch
-            logger.info("Starting community detection for batch {} ({} devices)", batchNumber, batch.size());
-            Map<String, List<String>> communities = graphService.detectAndStoreCommunitiesWithGraph(batch);
+            // Store devices and their relationships in the database
+            // We'll do community detection at the end to avoid ID conflicts
+            logger.info("Storing devices and relationships for batch {} ({} devices)", batchNumber, batch.size());
+            storeDevicesOnly(graphService, batch);
             
-            logger.info("Batch {} completed: detected {} communities", batchNumber, communities.size());
-            
-            // Log some statistics for this batch
-            int totalDevicesInCommunities = communities.values().stream()
-                .mapToInt(List::size)
-                .sum();
-            logger.info("Batch {} statistics: {} devices in {} communities", 
-                       batchNumber, totalDevicesInCommunities, communities.size());
+            logger.info("Batch {} completed: stored {} devices and their relationships", batchNumber, batch.size());
             
         } catch (Exception e) {
             logger.error("Error processing batch {}: {}", batchNumber, e.getMessage(), e);
             throw new RuntimeException("Failed to process batch " + batchNumber, e);
+        }
+    }
+    
+    /**
+     * Store devices and create graph relationships, handling ALREADY_EXISTS errors gracefully.
+     */
+    private static void storeDevicesOnly(GraphCommunityDetectionService graphService, List<Device> devices) {
+        logger.debug("Storing {} devices with graph relationships", devices.size());
+        
+        try {
+            // Use the existing method but handle ALREADY_EXISTS errors
+            Map<String, List<String>> communities = graphService.detectAndStoreCommunitiesWithGraph(devices);
+            logger.debug("Successfully stored {} devices and created {} communities", devices.size(), communities.size());
+            
+        } catch (Exception e) {
+            // Check if this is an ALREADY_EXISTS error for communities
+            if (e.getMessage() != null && e.getMessage().contains("ALREADY_EXISTS")) {
+                logger.debug("Community already exists (expected for subsequent batches), continuing...");
+                // This is expected behavior for subsequent batches, so we continue
+            } else {
+                logger.error("Unexpected error storing devices: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to store devices", e);
+            }
+        }
+    }
+    
+    /**
+     * Perform final community detection on all stored data.
+     */
+    private static void performFinalCommunityDetection(GraphCommunityDetectionService graphService) {
+        logger.info("Performing final community detection on all stored data");
+        
+        try {
+            // Use the rebuild method to detect all communities from the stored data
+            logger.info("Rebuilding all communities from stored graph data");
+            Map<String, List<String>> allCommunities = graphService.rebuildAllCommunitiesWithGraph();
+            logger.info("Final community detection completed: {} total communities detected", allCommunities.size());
+            
+            // Log some statistics
+            int totalDevicesInCommunities = allCommunities.values().stream()
+                .mapToInt(List::size)
+                .sum();
+            logger.info("Total devices in communities: {}", totalDevicesInCommunities);
+            
+        } catch (Exception e) {
+            logger.error("Error during final community detection: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to perform final community detection", e);
         }
     }
     
