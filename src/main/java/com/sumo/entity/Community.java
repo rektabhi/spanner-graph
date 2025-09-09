@@ -1,6 +1,7 @@
 package com.sumo.entity;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -12,6 +13,7 @@ public class Community {
     private String rootDeviceId;
     private int size;
     private String communityType; // "SSID", "SUBNET", "MAC_PREFIX", "MIXED"
+    private List<String> deviceIds; // Array of device IDs in this community
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -58,6 +60,14 @@ public class Community {
 
     public void setCommunityType(String communityType) {
         this.communityType = communityType;
+    }
+
+    public List<String> getDeviceIds() {
+        return deviceIds;
+    }
+
+    public void setDeviceIds(List<String> deviceIds) {
+        this.deviceIds = deviceIds;
     }
 
     public Instant getCreatedAt() {

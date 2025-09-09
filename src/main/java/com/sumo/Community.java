@@ -148,7 +148,7 @@ public class Community {
             unionGroup.accept(group, uf);
         }
         // Building communities: root -> list of device IDs
-        Map<String, List> communities = new HashMap<>();
+        Map<String, List<String>> communities = new HashMap<>();
         for (Device d : devices) {
             String root = uf.find(d.deviceId);
             communities.computeIfAbsent(root, k -> new ArrayList<>()).add(d.deviceId);
@@ -156,7 +156,7 @@ public class Community {
 
 // Print communities
         int idx = 1;
-        for (Map.Entry<String, List> entry : communities.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : communities.entrySet()) {
             System.out.println("Community " + idx + " (root=" + entry.getKey() + "): " + entry.getValue());
             idx++;
         }

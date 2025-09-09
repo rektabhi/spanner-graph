@@ -87,7 +87,9 @@ public class SpannerDeviceDao implements DeviceDao {
         logger.debug("Finding device by ID: {}", deviceId);
         
         try (ResultSet resultSet = dbClient.singleUse().executeQuery(
-            Statement.of("SELECT * FROM devices WHERE device_id = @deviceId")
+            Statement.newBuilder("SELECT * FROM devices WHERE device_id = @deviceId")
+                .bind("deviceId").to(deviceId)
+                .build()
         )) {
             if (resultSet.next()) {
                 return Optional.of(mapResultSetToDevice(resultSet));
