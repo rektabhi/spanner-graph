@@ -45,14 +45,11 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
         // Create heterogeneous graph nodes and edges
         createHeterogeneousGraphNodesAndEdges(savedDevices);
         
-        // Detect communities using heterogeneous graph queries
-        Map<String, List<String>> communities = detectAllCommunitiesWithConnectedComponents();
+        // Note: We don't pre-compute and store communities anymore
+        // Communities are now computed at runtime when requested
         
-        // Store communities in database
-        storeCommunities(communities);
-        
-        logger.info("Heterogeneous graph-based community detection completed. Found {} communities", communities.size());
-        return communities;
+        logger.info("Heterogeneous graph-based community detection completed. Graph nodes and edges created for {} devices", savedDevices.size());
+        return new HashMap<>(); // Return empty map since we don't pre-compute communities
     }
     
     @Override
@@ -202,24 +199,54 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
     public List<Community> getCommunitiesForDeviceGraph(String deviceId) {
         logger.debug("Getting communities for device using heterogeneous graph traversal: {}", deviceId);
         
-        String gqlQuery = """
-            SELECT c.community_id, c.root_device_id, c.size, c.community_type
-            FROM communities c
-            WHERE @deviceId IN UNNEST(c.device_ids)
-            """;
-        
         List<Community> communities = new ArrayList<>();
-        try (ResultSet resultSet = dbClient.singleUse().executeQuery(
-            Statement.newBuilder(gqlQuery).bind("deviceId").to(deviceId).build()
-        )) {
-            while (resultSet.next()) {
-                Community community = new Community();
-                community.setCommunityId(resultSet.getString("community_id"));
-                community.setRootDeviceId(resultSet.getString("root_device_id"));
-                community.setSize((int) resultSet.getLong("size"));
-                community.setCommunityType(resultSet.getString("community_type"));
-                communities.add(community);
-            }
+        
+        // Find communities by SSID
+        List<String> ssidCommunity = findCommunityByAttribute(deviceId, "SSID");
+        if (!ssidCommunity.isEmpty()) {
+            Community community = new Community();
+            community.setCommunityId("SSID_COMMUNITY_" + deviceId);
+            community.setRootDeviceId(deviceId);
+            community.setSize(ssidCommunity.size());
+            community.setCommunityType("SSID");
+            community.setDeviceIds(ssidCommunity);
+            communities.add(community);
+        }
+        
+        // Find communities by subnet
+        List<String> subnetCommunity = findCommunityByAttribute(deviceId, "SUBNET");
+        if (!subnetCommunity.isEmpty()) {
+            Community community = new Community();
+            community.setCommunityId("SUBNET_COMMUNITY_" + deviceId);
+            community.setRootDeviceId(deviceId);
+            community.setSize(subnetCommunity.size());
+            community.setCommunityType("SUBNET");
+            community.setDeviceIds(subnetCommunity);
+            communities.add(community);
+        }
+        
+        // Find communities by MAC prefix
+        List<String> macPrefixCommunity = findCommunityByAttribute(deviceId, "MAC_PREFIX");
+        if (!macPrefixCommunity.isEmpty()) {
+            Community community = new Community();
+            community.setCommunityId("MAC_PREFIX_COMMUNITY_" + deviceId);
+            community.setRootDeviceId(deviceId);
+            community.setSize(macPrefixCommunity.size());
+            community.setCommunityType("MAC_PREFIX");
+            community.setDeviceIds(macPrefixCommunity);
+            communities.add(community);
+        }
+        
+        // Find communities by IP
+        List<String> ipCommunity = findCommunityByAttribute(deviceId, "IP");
+        if (!ipCommunity.isEmpty()) {
+            Community community = new Community();
+            community.setCommunityId("IP_COMMUNITY_" + deviceId);
+            community.setRootDeviceId(deviceId);
+            community.setSize(ipCommunity.size());
+            community.setCommunityType("IP");
+            community.setDeviceIds(ipCommunity);
+            communities.add(community);
         }
         
         return communities;
@@ -229,21 +256,23 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
     public List<Device> getDevicesInCommunityGraph(String communityId) {
         logger.debug("Getting devices in community using heterogeneous graph traversal: {}", communityId);
         
-        String gqlQuery = """
-            SELECT d.*
-            FROM communities c
-            CROSS JOIN UNNEST(c.device_ids) as device_id
-            JOIN devices d ON d.device_id = device_id
-            WHERE c.community_id = @communityId
-            """;
+        // Parse community ID to determine type and device
+        String[] parts = communityId.split("_");
+        if (parts.length < 3) {
+            logger.warn("Invalid community ID format: {}", communityId);
+            return new ArrayList<>();
+        }
         
+        String communityType = parts[0]; // SSID, SUBNET, MAC_PREFIX, IP
+        String deviceId = parts[2]; // The device ID from the community ID
+        
+        // Find the community for this device and attribute type
+        List<String> deviceIds = findCommunityByAttribute(deviceId, communityType);
+        
+        // Get device details for all devices in the community
         List<Device> devices = new ArrayList<>();
-        try (ResultSet resultSet = dbClient.singleUse().executeQuery(
-            Statement.newBuilder(gqlQuery).bind("communityId").to(communityId).build()
-        )) {
-            while (resultSet.next()) {
-                devices.add(mapResultSetToDevice(resultSet));
-            }
+        for (String id : deviceIds) {
+            deviceDao.findById(id).ifPresent(devices::add);
         }
         
         return devices;
@@ -312,19 +341,35 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
     public Map<String, Integer> getCommunityStatisticsGraph() {
         logger.debug("Getting community statistics using heterogeneous graph queries");
         
-        String statsQuery = """
-            SELECT community_type, COUNT(*) as count
-            FROM communities
-            GROUP BY community_type
-            """;
-        
         Map<String, Integer> stats = new HashMap<>();
-        try (ResultSet resultSet = dbClient.singleUse().executeQuery(
-            Statement.of(statsQuery)
-        )) {
-            while (resultSet.next()) {
-                stats.put(resultSet.getString("community_type"), 
-                         (int) resultSet.getLong("count"));
+        
+        // Count unique attribute values to estimate community counts
+        String ssidCountQuery = "SELECT COUNT(DISTINCT ssid_value) as count FROM ssid_nodes";
+        String subnetCountQuery = "SELECT COUNT(DISTINCT subnet_value) as count FROM subnet_nodes";
+        String macPrefixCountQuery = "SELECT COUNT(DISTINCT mac_prefix_value) as count FROM mac_prefix_nodes";
+        String ipCountQuery = "SELECT COUNT(DISTINCT ip_value) as count FROM ip_nodes";
+        
+        try (ResultSet resultSet = dbClient.singleUse().executeQuery(Statement.of(ssidCountQuery))) {
+            if (resultSet.next()) {
+                stats.put("SSID", (int) resultSet.getLong("count"));
+            }
+        }
+        
+        try (ResultSet resultSet = dbClient.singleUse().executeQuery(Statement.of(subnetCountQuery))) {
+            if (resultSet.next()) {
+                stats.put("SUBNET", (int) resultSet.getLong("count"));
+            }
+        }
+        
+        try (ResultSet resultSet = dbClient.singleUse().executeQuery(Statement.of(macPrefixCountQuery))) {
+            if (resultSet.next()) {
+                stats.put("MAC_PREFIX", (int) resultSet.getLong("count"));
+            }
+        }
+        
+        try (ResultSet resultSet = dbClient.singleUse().executeQuery(Statement.of(ipCountQuery))) {
+            if (resultSet.next()) {
+                stats.put("IP", (int) resultSet.getLong("count"));
             }
         }
         
@@ -333,10 +378,9 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
     
     @Override
     public Map<String, List<String>> rebuildAllCommunitiesWithGraph() {
-        logger.info("Rebuilding all communities using heterogeneous graph algorithms");
+        logger.info("Rebuilding heterogeneous graph structure");
         
-        // Clear existing communities and graph edges
-        clearAllCommunities();
+        // Clear existing graph edges (but not communities since we don't store them anymore)
         clearAllHeterogeneousGraphEdges();
         
         // Get all devices from database
@@ -351,14 +395,11 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
         logger.info("Creating heterogeneous graph nodes and edges for all {} devices in database", allDevices.size());
         createHeterogeneousGraphNodesAndEdgesForAllDevices(allDevices);
         
-        // Detect communities using the complete heterogeneous graph
-        Map<String, List<String>> communities = detectAllCommunitiesWithConnectedComponents();
+        // Note: We don't pre-compute and store communities anymore
+        // Communities are now computed at runtime when requested
         
-        // Store communities in database
-        storeCommunities(communities);
-        
-        logger.info("Global heterogeneous community detection completed. Found {} communities", communities.size());
-        return communities;
+        logger.info("Global heterogeneous graph rebuild completed. Graph structure ready for runtime community queries");
+        return new HashMap<>(); // Return empty map since we don't pre-compute communities
     }
     
     /**
@@ -422,6 +463,123 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
             writeMutationsInBatches(mutations);
             logger.info("Created {} heterogeneous graph nodes and edges for all devices", mutations.size());
         }
+    }
+    
+    /**
+     * Find all devices that share the same attribute value as the given device.
+     * This method computes communities at runtime by traversing the heterogeneous graph.
+     */
+    private List<String> findCommunityByAttribute(String deviceId, String attributeType) {
+        logger.debug("Finding community for device {} by attribute type {}", deviceId, attributeType);
+        
+        String query;
+        switch (attributeType) {
+            case "SSID":
+                query = """
+                    SELECT DISTINCT d.device_id
+                    FROM devices d
+                    JOIN device_ssid_edges dse ON d.device_id = dse.device_id
+                    JOIN device_ssid_edges dse2 ON dse.ssid_value = dse2.ssid_value
+                    WHERE dse2.device_id = @deviceId
+                    """;
+                break;
+            case "SUBNET":
+                query = """
+                    SELECT DISTINCT d.device_id
+                    FROM devices d
+                    JOIN device_subnet_edges dse ON d.device_id = dse.device_id
+                    JOIN device_subnet_edges dse2 ON dse.subnet_value = dse2.subnet_value
+                    WHERE dse2.device_id = @deviceId
+                    """;
+                break;
+            case "MAC_PREFIX":
+                query = """
+                    SELECT DISTINCT d.device_id
+                    FROM devices d
+                    JOIN device_mac_prefix_edges dmpe ON d.device_id = dmpe.device_id
+                    JOIN device_mac_prefix_edges dmpe2 ON dmpe.mac_prefix_value = dmpe2.mac_prefix_value
+                    WHERE dmpe2.device_id = @deviceId
+                    """;
+                break;
+            case "IP":
+                query = """
+                    SELECT DISTINCT d.device_id
+                    FROM devices d
+                    JOIN device_ip_edges die ON d.device_id = die.device_id
+                    JOIN device_ip_edges die2 ON die.ip_value = die2.ip_value
+                    WHERE die2.device_id = @deviceId
+                    """;
+                break;
+            default:
+                logger.warn("Unknown attribute type: {}", attributeType);
+                return new ArrayList<>();
+        }
+        
+        List<String> deviceIds = new ArrayList<>();
+        try (ResultSet resultSet = dbClient.singleUse().executeQuery(
+            Statement.newBuilder(query).bind("deviceId").to(deviceId).build()
+        )) {
+            while (resultSet.next()) {
+                deviceIds.add(resultSet.getString("device_id"));
+            }
+        }
+        
+        logger.debug("Found {} devices in {} community for device {}", deviceIds.size(), attributeType, deviceId);
+        return deviceIds;
+    }
+    
+    /**
+     * Get all devices that share any attribute with the given device.
+     * This is useful for finding all possible connections for a device.
+     */
+    public List<String> getAllConnectedDevices(String deviceId) {
+        logger.debug("Getting all connected devices for device: {}", deviceId);
+        
+        Set<String> connectedDevices = new HashSet<>();
+        
+        // Get devices connected through SSID
+        connectedDevices.addAll(findCommunityByAttribute(deviceId, "SSID"));
+        
+        // Get devices connected through subnet
+        connectedDevices.addAll(findCommunityByAttribute(deviceId, "SUBNET"));
+        
+        // Get devices connected through MAC prefix
+        connectedDevices.addAll(findCommunityByAttribute(deviceId, "MAC_PREFIX"));
+        
+        // Get devices connected through IP
+        connectedDevices.addAll(findCommunityByAttribute(deviceId, "IP"));
+        
+        // Remove the device itself from the result
+        connectedDevices.remove(deviceId);
+        
+        List<String> result = new ArrayList<>(connectedDevices);
+        logger.debug("Found {} connected devices for device {}", result.size(), deviceId);
+        return result;
+    }
+    
+    /**
+     * Get the largest community for a device across all attribute types.
+     */
+    public Community getLargestCommunityForDevice(String deviceId) {
+        logger.debug("Getting largest community for device: {}", deviceId);
+        
+        List<Community> allCommunities = getCommunitiesForDeviceGraph(deviceId);
+        
+        if (allCommunities.isEmpty()) {
+            return null;
+        }
+        
+        // Find the community with the largest size
+        Community largestCommunity = allCommunities.get(0);
+        for (Community community : allCommunities) {
+            if (community.getSize() > largestCommunity.getSize()) {
+                largestCommunity = community;
+            }
+        }
+        
+        logger.debug("Largest community for device {}: {} with {} devices", 
+            deviceId, largestCommunity.getCommunityType(), largestCommunity.getSize());
+        return largestCommunity;
     }
     
     /**
@@ -566,99 +724,6 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
         return communities;
     }
     
-    /**
-     * Store communities in the database.
-     */
-    private void storeCommunities(Map<String, List<String>> communities) {
-        List<Community> communityEntities = new ArrayList<>();
-        
-        for (Map.Entry<String, List<String>> entry : communities.entrySet()) {
-            String communityId = entry.getKey();
-            List<String> deviceIds = entry.getValue();
-            
-            if (deviceIds.size() > 1) {
-                String rootDeviceId = deviceIds.get(0);
-                String communityType = determineCommunityType(deviceIds);
-                
-                Community community = new Community(communityId, rootDeviceId, deviceIds.size(), communityType);
-                communityEntities.add(community);
-            }
-        }
-        
-        // Save to database using a custom method that handles the device_ids array
-        if (!communityEntities.isEmpty()) {
-            saveCommunitiesWithDeviceIds(communityEntities, communities);
-            logger.debug("Saved {} communities to database", communityEntities.size());
-        }
-    }
-    
-    /**
-     * Save communities with device IDs array.
-     */
-    private void saveCommunitiesWithDeviceIds(List<Community> communities, Map<String, List<String>> communityDeviceMap) {
-        List<Mutation> mutations = new ArrayList<>();
-        Instant now = Instant.now();
-        
-        for (Community community : communities) {
-            List<String> deviceIds = communityDeviceMap.get(community.getCommunityId());
-            
-            mutations.add(
-                Mutation.newInsertBuilder("communities")
-                    .set("community_id").to(community.getCommunityId())
-                    .set("root_device_id").to(community.getRootDeviceId())
-                    .set("size").to(community.getSize())
-                    .set("community_type").to(community.getCommunityType())
-                    .set("device_ids").toStringArray(deviceIds)
-                    .set("created_at").to(com.google.cloud.Timestamp.ofTimeMicroseconds(now.toEpochMilli() * 1000))
-                    .set("updated_at").to(com.google.cloud.Timestamp.ofTimeMicroseconds(now.toEpochMilli() * 1000))
-                    .build()
-            );
-        }
-        
-        dbClient.write(mutations);
-    }
-    
-    /**
-     * Determine the community type based on device attributes.
-     */
-    private String determineCommunityType(List<String> deviceIds) {
-        Set<String> ssids = new HashSet<>();
-        Set<String> subnets = new HashSet<>();
-        Set<String> macPrefixes = new HashSet<>();
-        
-        for (String deviceId : deviceIds) {
-            deviceDao.findById(deviceId).ifPresent(device -> {
-                if (device.getSsid() != null) ssids.add(device.getSsid());
-                if (device.getSubnet() != null) subnets.add(device.getSubnet());
-                if (device.getMacPrefix() != null) macPrefixes.add(device.getMacPrefix());
-            });
-        }
-        
-        int attributeTypes = 0;
-        if (ssids.size() == 1) attributeTypes++;
-        if (subnets.size() == 1) attributeTypes++;
-        if (macPrefixes.size() == 1) attributeTypes++;
-        
-        if (attributeTypes == 1) {
-            if (ssids.size() == 1) return "SSID";
-            if (subnets.size() == 1) return "SUBNET";
-            if (macPrefixes.size() == 1) return "MAC_PREFIX";
-        }
-        
-        return "MIXED";
-    }
-    
-    /**
-     * Clear all existing communities.
-     */
-    private void clearAllCommunities() {
-        logger.debug("Clearing all existing communities");
-        
-        List<Community> existingCommunities = communityDao.findAll();
-        for (Community community : existingCommunities) {
-            communityDao.deleteById(community.getCommunityId());
-        }
-    }
     
     /**
      * Clear all existing heterogeneous graph edges and attribute nodes.
