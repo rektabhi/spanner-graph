@@ -14,6 +14,11 @@ import com.sumo.util.NetworkUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -25,9 +30,19 @@ import java.util.Map;
 public class GraphCommunityDetectionDemo {
     
     private static final Logger logger = LoggerFactory.getLogger(GraphCommunityDetectionDemo.class);
+    private static final String CSV_FILE_PATH = "mock_devices_1m.csv";
     
     public static void main(String[] args) {
         logger.info("Starting Graph-based Community Detection Demo");
+        
+        // Parse command line arguments
+        String csvFilePath = CSV_FILE_PATH;
+        if (args.length > 0) {
+            csvFilePath = args[0];
+            logger.info("Using CSV file from command line: {}", csvFilePath);
+        } else {
+            logger.info("Using default CSV file: {}", csvFilePath);
+        }
         
         // Configuration - In a real application, these would come from environment variables or config files
         // String projectId = System.getProperty("spanner.project.id", "your-project-id");
@@ -51,22 +66,26 @@ public class GraphCommunityDetectionDemo {
             // Clear existing data to avoid conflicts
             clearExistingData(dbClient);
             
-            // Create sample devices
-            List<Device> sampleDevices = createSampleDevices();
+            // Read devices from CSV file
+            List<Device> sampleDevices = readDevicesFromCSV(csvFilePath);
             
-            // Process devices and calculate network attributes
+            // Process devices and calculate network attributes (if not already calculated)
             processDeviceNetworkAttributes(sampleDevices);
             
             // Demonstrate graph-based community detection
+            logger.info("Starting community detection for {} devices", sampleDevices.size());
             demonstrateGraphCommunityDetection(graphService, sampleDevices);
             
             // Demonstrate graph querying capabilities
+            logger.info("Starting graph querying demonstrations");
             demonstrateGraphQuerying(graphService);
             
             // Demonstrate graph statistics
+            logger.info("Starting graph statistics demonstrations");
             demonstrateGraphStatistics(graphService);
             
             // Demonstrate shortest path finding
+            logger.info("Starting shortest path demonstrations");
             demonstrateShortestPath(graphService);
             
             logger.info("Graph-based Community Detection Demo completed successfully");
@@ -79,49 +98,142 @@ public class GraphCommunityDetectionDemo {
     }
     
     /**
-     * Create sample devices for demonstration.
+     * Read devices from CSV file for demonstration.
      */
-    private static List<Device> createSampleDevices() {
-        logger.info("Creating sample devices for graph demo");
+    private static List<Device> readDevicesFromCSV(String csvFilePath) {
+        logger.info("Reading devices from CSV file: {}", csvFilePath);
         
-        List<Device> devices = Arrays.asList(
-            new Device("D1", "OfficeWiFi", "192.168.1.2", "AA:BB:CC:11:22:33"),
-            new Device("D2", "OfficeWiFi", "192.168.1.3", "AA:BB:CC:11:22:34"),
-            new Device("D3", "HomeWiFi", "192.168.2.4", "DD:EE:FF:44:55:66"),
-            new Device("D4", "OfficeWiFi", "192.168.1.10", "AA:BB:CC:11:22:35"),
-            new Device("D5", "CafeWiFi", "10.0.0.5", "11:22:33:44:55:66"),
-            new Device("D6", "HomeWiFi", "192.168.2.5", "DD:EE:FF:44:55:67"),
-            new Device("D7", "OfficeWiFi", "192.168.1.15", "AA:BB:CC:11:22:36"),
-            new Device("D8", "GuestWiFi", "172.16.0.10", "99:88:77:66:55:44"),
-            new Device("D9", "GuestWiFi", "172.16.0.11", "99:88:77:66:55:45"),
-            new Device("D10", "MobileHotspot", "192.168.43.1", "12:34:56:78:90:AB"),
-            new Device("D11", "OfficeWiFi", "192.168.1.20", "AA:BB:CC:11:22:37"),
-            new Device("D12", "HomeWiFi", "192.168.2.10", "DD:EE:FF:44:55:68")
-        );
+        List<Device> devices = new ArrayList<>();
         
-        logger.info("Created {} sample devices", devices.size());
+        try (BufferedReader reader = new BufferedReader(new FileReader(csvFilePath))) {
+            String line;
+            boolean isFirstLine = true;
+            int lineCount = 0;
+            
+            while ((line = reader.readLine()) != null) {
+                lineCount++;
+                
+                // Skip header line
+                if (isFirstLine) {
+                    isFirstLine = false;
+                    continue;
+                }
+                
+                // Parse CSV line
+                String[] fields = parseCSVLine(line);
+                if (fields.length >= 7) {
+                    Device device = new Device(
+                        fields[0], // device_id
+                        fields[1], // ssid
+                        fields[2], // ip_address
+                        fields[3]  // mac_address
+                    );
+                    
+                    // Set additional fields if available
+                    if (fields.length > 4 && !fields[4].isEmpty()) {
+                        device.setSubnet(fields[4]); // subnet
+                    }
+                    if (fields.length > 5 && !fields[5].isEmpty()) {
+                        device.setMacPrefix(fields[5]); // mac_prefix
+                    }
+                    if (fields.length > 6 && !fields[6].isEmpty()) {
+                        try {
+                            device.setCreatedAt(Instant.parse(fields[6])); // created_at
+                        } catch (Exception e) {
+                            logger.warn("Failed to parse created_at for device {}: {}", fields[0], e.getMessage());
+                        }
+                    }
+                    
+                    devices.add(device);
+                } else {
+                    logger.warn("Skipping malformed line {}: {}", lineCount, line);
+                }
+                
+                // Progress update for large files
+                if (lineCount % 10000 == 0) {
+                    logger.info("Processed {} lines, loaded {} devices", lineCount, devices.size());
+                }
+            }
+            
+            logger.info("Successfully loaded {} devices from CSV file", devices.size());
+            
+        } catch (IOException e) {
+            logger.error("Error reading CSV file: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to read devices from CSV file", e);
+        }
+        
         return devices;
     }
     
     /**
+     * Parse a CSV line, handling quoted fields and commas within quotes.
+     */
+    private static String[] parseCSVLine(String line) {
+        List<String> fields = new ArrayList<>();
+        StringBuilder currentField = new StringBuilder();
+        boolean inQuotes = false;
+        
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    // Escaped quote
+                    currentField.append('"');
+                    i++; // Skip next quote
+                } else {
+                    // Toggle quote state
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                // Field separator
+                fields.add(currentField.toString());
+                currentField = new StringBuilder();
+            } else {
+                currentField.append(c);
+            }
+        }
+        
+        // Add the last field
+        fields.add(currentField.toString());
+        
+        return fields.toArray(new String[0]);
+    }
+    
+    /**
      * Process devices to calculate network attributes (subnet, MAC prefix).
+     * Only calculates if not already set from CSV.
      */
     private static void processDeviceNetworkAttributes(List<Device> devices) {
-        logger.info("Processing network attributes for devices");
+        logger.info("Processing network attributes for {} devices", devices.size());
         
+        int processedCount = 0;
         for (Device device : devices) {
-            // Calculate subnet from IP
-            String subnet = NetworkUtils.getSubnet(device.getIp());
-            device.setSubnet(subnet);
+            // Calculate subnet from IP if not already set
+            if (device.getSubnet() == null || device.getSubnet().isEmpty()) {
+                String subnet = NetworkUtils.getSubnet(device.getIp());
+                device.setSubnet(subnet);
+            }
             
-            // Calculate MAC prefix
-            String macPrefix = NetworkUtils.getMacPrefix(device.getMac());
-            device.setMacPrefix(macPrefix);
+            // Calculate MAC prefix if not already set
+            if (device.getMacPrefix() == null || device.getMacPrefix().isEmpty()) {
+                String macPrefix = NetworkUtils.getMacPrefix(device.getMac());
+                device.setMacPrefix(macPrefix);
+            }
+            
+            processedCount++;
+            
+            // Log progress for large datasets
+            if (processedCount % 10000 == 0) {
+                logger.info("Processed network attributes for {} devices", processedCount);
+            }
             
             logger.debug("Device {}: IP={}, Subnet={}, MAC={}, MAC_Prefix={}", 
                         device.getDeviceId(), device.getIp(), device.getSubnet(), 
                         device.getMac(), device.getMacPrefix());
         }
+        
+        logger.info("Completed processing network attributes for {} devices", processedCount);
     }
     
     /**
@@ -262,13 +374,26 @@ public class GraphCommunityDetectionDemo {
     private static void printUsage() {
         System.out.println("Graph-based Community Detection Demo");
         System.out.println("====================================");
-        System.out.println("This demo requires Google Cloud Spanner with Graph capabilities.");
-        System.out.println("Set the following system properties:");
-        System.out.println("  -Dspanner.project.id=your-project-id");
-        System.out.println("  -Dspanner.instance.id=your-instance-id");
-        System.out.println("  -Dspanner.database.id=your-database-id");
+        System.out.println("This demo reads device data from a CSV file and creates community graphs in Spanner.");
         System.out.println();
-        System.out.println("Make sure the database exists and the graph schema has been created.");
-        System.out.println("See src/main/resources/graph-schema.sql for the required schema.");
+        System.out.println("Usage:");
+        System.out.println("  java com.sumo.GraphCommunityDetectionDemo [csv-file-path]");
+        System.out.println();
+        System.out.println("Arguments:");
+        System.out.println("  csv-file-path    Path to CSV file containing device data (optional)");
+        System.out.println("                   Default: mock_devices_1m.csv");
+        System.out.println();
+        System.out.println("CSV Format:");
+        System.out.println("  device_id,ssid,ip_address,mac_address,subnet,mac_prefix,created_at");
+        System.out.println();
+        System.out.println("Requirements:");
+        System.out.println("  - Google Cloud Spanner with Graph capabilities");
+        System.out.println("  - Database exists with graph schema created");
+        System.out.println("  - See src/main/resources/graph-schema.sql for required schema");
+        System.out.println();
+        System.out.println("Configuration (hardcoded in demo):");
+        System.out.println("  - Project ID: sm-apps-core");
+        System.out.println("  - Instance ID: common-spanner-next");
+        System.out.println("  - Database ID: communities-next");
     }
 }
