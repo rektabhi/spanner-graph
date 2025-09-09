@@ -55,35 +55,7 @@ public class NetworkUtils {
         cleaned = cleaned.substring(0, 6).toUpperCase();
         return cleaned.substring(0, 2) + ":" + cleaned.substring(2, 4) + ":" + cleaned.substring(4, 6);
     }
-    
-    /**
-     * Validate IP address format (basic validation for IPv4).
-     * @param ip the IP address to validate
-     * @return true if valid, false otherwise
-     */
-    public static boolean isValidIp(String ip) {
-        if (ip == null || ip.isEmpty()) {
-            return false;
-        }
-        
-        String[] parts = ip.split("\\.");
-        if (parts.length != 4) {
-            return false;
-        }
-        
-        try {
-            for (String part : parts) {
-                int value = Integer.parseInt(part);
-                if (value < 0 || value > 255) {
-                    return false;
-                }
-            }
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
-    
+
     /**
      * Validate MAC address format.
      * @param mac the MAC address to validate

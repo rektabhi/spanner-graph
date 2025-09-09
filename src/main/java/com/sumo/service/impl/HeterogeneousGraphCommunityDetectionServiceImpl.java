@@ -1,7 +1,6 @@
 package com.sumo.service.impl;
 
 import com.google.cloud.spanner.*;
-import com.sumo.dao.CommunityDao;
 import com.sumo.dao.DeviceDao;
 import com.sumo.entity.Community;
 import com.sumo.entity.Device;
@@ -12,7 +11,6 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Implementation of GraphCommunityDetectionService using heterogeneous graph model.
@@ -24,14 +22,11 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
     
     private final DatabaseClient dbClient;
     private final DeviceDao deviceDao;
-    private final CommunityDao communityDao;
-    
+
     public HeterogeneousGraphCommunityDetectionServiceImpl(DatabaseClient dbClient, 
-                                            DeviceDao deviceDao, 
-                                            CommunityDao communityDao) {
+                                            DeviceDao deviceDao) {
         this.dbClient = dbClient;
         this.deviceDao = deviceDao;
-        this.communityDao = communityDao;
     }
     
     @Override
@@ -611,18 +606,7 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
             mutations.add(createDeviceAttributeEdgeMutationWithIgnore("device_ip_edges", device.getDeviceId(), device.getIp(), now));
         }
     }
-    
-    /**
-     * Create an attribute node mutation.
-     */
-    private Mutation createAttributeNodeMutation(String tableName, String attributeValue, Instant timestamp) {
-        String columnName = getAttributeColumnNameForTable(tableName);
-        return Mutation.newInsertBuilder(tableName)
-            .set(columnName).to(attributeValue)
-            .set("created_at").to(com.google.cloud.Timestamp.ofTimeMicroseconds(timestamp.toEpochMilli() * 1000))
-            .build();
-    }
-    
+
     /**
      * Create an attribute node mutation with INSERT OR UPDATE to handle duplicates.
      * This prevents errors when multiple devices share the same attribute value.
@@ -634,19 +618,7 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
             .set("created_at").to(com.google.cloud.Timestamp.ofTimeMicroseconds(timestamp.toEpochMilli() * 1000))
             .build();
     }
-    
-    /**
-     * Create a device-attribute edge mutation.
-     */
-    private Mutation createDeviceAttributeEdgeMutation(String tableName, String deviceId, String attributeValue, Instant timestamp) {
-        String attributeColumnName = getAttributeColumnNameForEdgeTable(tableName);
-        return Mutation.newInsertBuilder(tableName)
-            .set("device_id").to(deviceId)
-            .set(attributeColumnName).to(attributeValue)
-            .set("created_at").to(com.google.cloud.Timestamp.ofTimeMicroseconds(timestamp.toEpochMilli() * 1000))
-            .build();
-    }
-    
+
     /**
      * Create a device-attribute edge mutation with INSERT OR UPDATE to handle duplicates.
      * This prevents errors when the same device-attribute edge is created multiple times.
@@ -767,20 +739,5 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
             }
         }
     }
-    
-    /**
-     * Map ResultSet to Device entity.
-     */
-    private Device mapResultSetToDevice(ResultSet resultSet) {
-        Device device = new Device();
-        device.setDeviceId(resultSet.getString("device_id"));
-        device.setSsid(resultSet.getString("ssid"));
-        device.setIp(resultSet.getString("ip"));
-        device.setMac(resultSet.getString("mac"));
-        device.setSubnet(resultSet.getString("subnet"));
-        device.setMacPrefix(resultSet.getString("mac_prefix"));
-        device.setCreatedAt(resultSet.getTimestamp("created_at").toSqlTimestamp().toInstant());
-        device.setUpdatedAt(resultSet.getTimestamp("updated_at").toSqlTimestamp().toInstant());
-        return device;
-    }
+
 }

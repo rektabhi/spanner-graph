@@ -4,11 +4,9 @@ import com.google.cloud.spanner.DatabaseClient;
 import com.google.cloud.spanner.KeySet;
 import com.google.cloud.spanner.Mutation;
 import com.sumo.config.SpannerConfig;
-import com.sumo.dao.CommunityDao;
 import com.sumo.dao.DeviceDao;
 import com.sumo.entity.Community;
 import com.sumo.entity.Device;
-import com.sumo.service.GraphCommunityDetectionService;
 import com.sumo.service.impl.HeterogeneousGraphCommunityDetectionServiceImpl;
 import com.sumo.util.NetworkUtils;
 import org.slf4j.Logger;
@@ -33,7 +31,7 @@ public class RuntimeCommunityDetectionDemo {
     private static final Logger logger = LoggerFactory.getLogger(RuntimeCommunityDetectionDemo.class);
     private static final String CSV_FILE_PATH = "mock_devices_1m.csv";
     private static final int BATCH_SIZE = 100; // Process devices in batches to avoid resource exhaustion
-    private static final int MAX_SIZE = 1000; // Maximum number of devices to process for demo purposes
+    private static final int MAX_SIZE = 1100; // Maximum number of devices to process for demo purposes
     
     public static void main(String[] args) {
         logger.info("Starting Runtime Community Detection Demo");
@@ -82,11 +80,10 @@ public class RuntimeCommunityDetectionDemo {
             SpannerConfig config = new SpannerConfig(projectId, instanceId, databaseId);
             DatabaseClient dbClient = config.createDatabaseClient();
             DeviceDao deviceDao = config.deviceDao();
-            CommunityDao communityDao = config.communityDao();
-            
+
             // Use the runtime community detection service
             HeterogeneousGraphCommunityDetectionServiceImpl service = new HeterogeneousGraphCommunityDetectionServiceImpl(
-                dbClient, deviceDao, communityDao);
+                dbClient, deviceDao);
             
             // Clear existing data to avoid conflicts
             clearExistingData(dbClient);

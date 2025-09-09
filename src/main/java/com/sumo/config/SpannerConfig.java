@@ -4,11 +4,7 @@ import com.google.cloud.spanner.DatabaseClient;
 import com.google.cloud.spanner.DatabaseId;
 import com.google.cloud.spanner.Spanner;
 import com.google.cloud.spanner.SpannerOptions;
-import com.sumo.dao.CommunityDao;
-import com.sumo.dao.DeviceCommunityDao;
 import com.sumo.dao.DeviceDao;
-import com.sumo.dao.spanner.SpannerCommunityDao;
-import com.sumo.dao.spanner.SpannerDeviceCommunityDao;
 import com.sumo.dao.spanner.SpannerDeviceDao;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,44 +59,5 @@ public class SpannerConfig {
     public DeviceDao deviceDao() {
         return new SpannerDeviceDao(createDatabaseClient());
     }
-    
-    /**
-     * Create CommunityDao bean.
-     * @return configured CommunityDao
-     */
-    public CommunityDao communityDao() {
-        return new SpannerCommunityDao(createDatabaseClient());
-    }
-    
-    /**
-     * Create DeviceCommunityDao bean.
-     * @return configured DeviceCommunityDao
-     */
-    public DeviceCommunityDao deviceCommunityDao() {
-        return new SpannerDeviceCommunityDao(createDatabaseClient());
-    }
-    
-    /**
-     * Get project ID.
-     * @return project ID
-     */
-    public String getProjectId() {
-        return projectId;
-    }
-    
-    /**
-     * Get instance ID.
-     * @return instance ID
-     */
-    public String getInstanceId() {
-        return instanceId;
-    }
-    
-    /**
-     * Get database ID.
-     * @return database ID
-     */
-    public String getDatabaseId() {
-        return databaseId;
-    }
+
 }
