@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Console appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Set root logger level to WARN to disable DEBUG and INFO logs -->
+    <root level="WARN">
+        <appender-ref ref="CONSOLE" />
+    </root>
+
+    <!-- Set our application logger to INFO level -->
+    <logger name="com.sumo" level="INFO" />
+    
+    <!-- Completely disable gRPC and Netty logs -->
+    <logger name="io.grpc" level="OFF" />
+    <logger name="io.netty" level="OFF" />
+    <logger name="com.google.cloud.spanner" level="OFF" />
+    <logger name="com.google.api" level="OFF" />
+    <logger name="com.google.auth" level="OFF" />
+    <logger name="com.google.common" level="OFF" />
+    <logger name="com.google.protobuf" level="OFF" />
+    <logger name="io.grpc.netty" level="OFF" />
+    <logger name="io.grpc.netty.shaded" level="OFF" />
+    <logger name="io.grpc.netty.shaded.io.grpc.netty" level="OFF" />
+    <logger name="io.grpc.netty.shaded.io.netty" level="OFF" />
+    <logger name="io.grpc.netty.shaded.io.netty.channel" level="OFF" />
+    <logger name="io.grpc.netty.shaded.io.netty.channel.nio" level="OFF" />
+    <logger name="io.grpc.netty.shaded.io.netty.channel.nio.NioEventLoop" level="OFF" />
+    <logger name="io.grpc.netty.shaded.io.grpc.netty.NettyClientHandler" level="OFF" />
+</configuration>
