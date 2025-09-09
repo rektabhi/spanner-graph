@@ -31,17 +31,31 @@ public class GraphCommunityDetectionDemo {
     
     private static final Logger logger = LoggerFactory.getLogger(GraphCommunityDetectionDemo.class);
     private static final String CSV_FILE_PATH = "mock_devices_1m.csv";
+    private static final int BATCH_SIZE = 100; // Process devices in batches to avoid resource exhaustion
     
     public static void main(String[] args) {
         logger.info("Starting Graph-based Community Detection Demo");
         
         // Parse command line arguments
         String csvFilePath = CSV_FILE_PATH;
+        int batchSize = BATCH_SIZE;
+        
         if (args.length > 0) {
             csvFilePath = args[0];
             logger.info("Using CSV file from command line: {}", csvFilePath);
         } else {
             logger.info("Using default CSV file: {}", csvFilePath);
+        }
+        
+        if (args.length > 1) {
+            try {
+                batchSize = Integer.parseInt(args[1]);
+                logger.info("Using batch size from command line: {}", batchSize);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid batch size '{}', using default: {}", args[1], BATCH_SIZE);
+            }
+        } else {
+            logger.info("Using default batch size: {}", batchSize);
         }
         
         // Configuration - In a real application, these would come from environment variables or config files
@@ -66,15 +80,8 @@ public class GraphCommunityDetectionDemo {
             // Clear existing data to avoid conflicts
             clearExistingData(dbClient);
             
-            // Read devices from CSV file
-            List<Device> sampleDevices = readDevicesFromCSV(csvFilePath);
-            
-            // Process devices and calculate network attributes (if not already calculated)
-            processDeviceNetworkAttributes(sampleDevices);
-            
-            // Demonstrate graph-based community detection
-            logger.info("Starting community detection for {} devices", sampleDevices.size());
-            demonstrateGraphCommunityDetection(graphService, sampleDevices);
+            // Process devices in batches to avoid resource exhaustion
+            processDevicesInBatches(graphService, csvFilePath, batchSize);
             
             // Demonstrate graph querying capabilities
             logger.info("Starting graph querying demonstrations");
@@ -94,6 +101,122 @@ public class GraphCommunityDetectionDemo {
             logger.error("Error during demo execution", e);
             System.err.println("Demo failed: " + e.getMessage());
             System.exit(1);
+        }
+    }
+    
+    /**
+     * Process devices in batches to avoid resource exhaustion.
+     */
+    private static void processDevicesInBatches(GraphCommunityDetectionService graphService, String csvFilePath, int batchSize) {
+        logger.info("Processing devices in batches of {} to avoid resource exhaustion", batchSize);
+        
+        try (BufferedReader reader = new BufferedReader(new FileReader(csvFilePath))) {
+            String line;
+            boolean isFirstLine = true;
+            int lineCount = 0;
+            int batchNumber = 1;
+            List<Device> currentBatch = new ArrayList<>();
+            
+            while ((line = reader.readLine()) != null) {
+                lineCount++;
+                
+                // Skip header line
+                if (isFirstLine) {
+                    isFirstLine = false;
+                    continue;
+                }
+                
+                // Parse CSV line and create device
+                String[] fields = parseCSVLine(line);
+                if (fields.length >= 7) {
+                    Device device = new Device(
+                        fields[0], // device_id
+                        fields[1], // ssid
+                        fields[2], // ip_address
+                        fields[3]  // mac_address
+                    );
+                    
+                    // Set additional fields if available
+                    if (fields.length > 4 && !fields[4].isEmpty()) {
+                        device.setSubnet(fields[4]); // subnet
+                    }
+                    if (fields.length > 5 && !fields[5].isEmpty()) {
+                        device.setMacPrefix(fields[5]); // mac_prefix
+                    }
+                    if (fields.length > 6 && !fields[6].isEmpty()) {
+                        try {
+                            device.setCreatedAt(Instant.parse(fields[6])); // created_at
+                        } catch (Exception e) {
+                            logger.warn("Failed to parse created_at for device {}: {}", fields[0], e.getMessage());
+                        }
+                    }
+                    
+                    currentBatch.add(device);
+                    
+                    // Process batch when it reaches the batch size
+                    if (currentBatch.size() >= batchSize) {
+                        processBatch(graphService, currentBatch, batchNumber);
+                        currentBatch.clear();
+                        batchNumber++;
+                        
+                        // Add a small delay between batches to prevent overwhelming Spanner
+                        try {
+                            Thread.sleep(100); // 100ms delay
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            logger.warn("Batch processing interrupted");
+                            break;
+                        }
+                    }
+                } else {
+                    logger.warn("Skipping malformed line {}: {}", lineCount, line);
+                }
+                
+                // Progress update
+                if (lineCount % 10000 == 0) {
+                    logger.info("Processed {} lines, completed {} batches", lineCount, batchNumber - 1);
+                }
+            }
+            
+            // Process remaining devices in the last batch
+            if (!currentBatch.isEmpty()) {
+                processBatch(graphService, currentBatch, batchNumber);
+            }
+            
+            logger.info("Completed processing all devices in {} batches", batchNumber);
+            
+        } catch (IOException e) {
+            logger.error("Error reading CSV file: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to read devices from CSV file", e);
+        }
+    }
+    
+    /**
+     * Process a single batch of devices.
+     */
+    private static void processBatch(GraphCommunityDetectionService graphService, List<Device> batch, int batchNumber) {
+        logger.info("Processing batch {} with {} devices", batchNumber, batch.size());
+        
+        try {
+            // Process network attributes for this batch
+            processDeviceNetworkAttributes(batch);
+            
+            // Perform community detection for this batch
+            logger.info("Starting community detection for batch {} ({} devices)", batchNumber, batch.size());
+            Map<String, List<String>> communities = graphService.detectAndStoreCommunitiesWithGraph(batch);
+            
+            logger.info("Batch {} completed: detected {} communities", batchNumber, communities.size());
+            
+            // Log some statistics for this batch
+            int totalDevicesInCommunities = communities.values().stream()
+                .mapToInt(List::size)
+                .sum();
+            logger.info("Batch {} statistics: {} devices in {} communities", 
+                       batchNumber, totalDevicesInCommunities, communities.size());
+            
+        } catch (Exception e) {
+            logger.error("Error processing batch {}: {}", batchNumber, e.getMessage(), e);
+            throw new RuntimeException("Failed to process batch " + batchNumber, e);
         }
     }
     
@@ -211,14 +334,14 @@ public class GraphCommunityDetectionDemo {
         for (Device device : devices) {
             // Calculate subnet from IP if not already set
             if (device.getSubnet() == null || device.getSubnet().isEmpty()) {
-                String subnet = NetworkUtils.getSubnet(device.getIp());
-                device.setSubnet(subnet);
+            String subnet = NetworkUtils.getSubnet(device.getIp());
+            device.setSubnet(subnet);
             }
             
             // Calculate MAC prefix if not already set
             if (device.getMacPrefix() == null || device.getMacPrefix().isEmpty()) {
-                String macPrefix = NetworkUtils.getMacPrefix(device.getMac());
-                device.setMacPrefix(macPrefix);
+            String macPrefix = NetworkUtils.getMacPrefix(device.getMac());
+            device.setMacPrefix(macPrefix);
             }
             
             processedCount++;
@@ -377,11 +500,13 @@ public class GraphCommunityDetectionDemo {
         System.out.println("This demo reads device data from a CSV file and creates community graphs in Spanner.");
         System.out.println();
         System.out.println("Usage:");
-        System.out.println("  java com.sumo.GraphCommunityDetectionDemo [csv-file-path]");
+        System.out.println("  java com.sumo.GraphCommunityDetectionDemo [csv-file-path] [batch-size]");
         System.out.println();
         System.out.println("Arguments:");
         System.out.println("  csv-file-path    Path to CSV file containing device data (optional)");
         System.out.println("                   Default: mock_devices_1m.csv");
+        System.out.println("  batch-size       Number of devices to process in each batch (optional)");
+        System.out.println("                   Default: 1000");
         System.out.println();
         System.out.println("CSV Format:");
         System.out.println("  device_id,ssid,ip_address,mac_address,subnet,mac_prefix,created_at");
@@ -395,5 +520,11 @@ public class GraphCommunityDetectionDemo {
         System.out.println("  - Project ID: sm-apps-core");
         System.out.println("  - Instance ID: common-spanner-next");
         System.out.println("  - Database ID: communities-next");
+        System.out.println();
+        System.out.println("Performance Notes:");
+        System.out.println("  - Large datasets are processed in batches to avoid resource exhaustion");
+        System.out.println("  - A 100ms delay is added between batches to prevent overwhelming Spanner");
+        System.out.println("  - For 1M devices with batch size 1000, expect ~1000 batches");
+        System.out.println("  - Adjust batch size based on your Spanner instance capacity");
     }
 }
