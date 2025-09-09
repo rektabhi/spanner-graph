@@ -325,16 +325,10 @@ public class RuntimeCommunityDetectionDemo {
         List<String> sampleIds = new ArrayList<>();
         
         // Try to find devices with common patterns
-        for (int i = 1; i <= 10; i++) {
-            sampleIds.add("D" + i);
+        for (int i = 1; i < 10; i++) {
+            sampleIds.add("DEV_000000" + i);
         }
-        
-        // Add some other common patterns
-        sampleIds.add("device_001");
-        sampleIds.add("device_002");
-        sampleIds.add("DEVICE_1");
-        sampleIds.add("DEVICE_2");
-        
+
         return sampleIds;
     }
     

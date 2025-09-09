@@ -116,7 +116,7 @@ public class NetworkUtils {
             if (i > 0) {
                 normalized.append(":");
             }
-            normalized.append(cleaned.substring(i, i + 2));
+            normalized.append(cleaned, i, i + 2);
         }
         
         return normalized.toString();
