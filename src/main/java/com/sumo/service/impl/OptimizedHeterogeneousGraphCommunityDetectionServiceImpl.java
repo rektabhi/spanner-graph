@@ -15,18 +15,18 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Implementation of GraphCommunityDetectionService using heterogeneous graph model.
- * Uses Spanner's graph database capabilities with devices and attributes as nodes.
+ * Optimized implementation of GraphCommunityDetectionService using heterogeneous graph model.
+ * This version is more efficient by collecting unique attribute values first before creating nodes.
  */
-public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCommunityDetectionService {
+public class OptimizedHeterogeneousGraphCommunityDetectionServiceImpl implements GraphCommunityDetectionService {
     
-    private static final Logger logger = LoggerFactory.getLogger(HeterogeneousGraphCommunityDetectionServiceImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(OptimizedHeterogeneousGraphCommunityDetectionServiceImpl.class);
     
     private final DatabaseClient dbClient;
     private final DeviceDao deviceDao;
     private final CommunityDao communityDao;
     
-    public HeterogeneousGraphCommunityDetectionServiceImpl(DatabaseClient dbClient, 
+    public OptimizedHeterogeneousGraphCommunityDetectionServiceImpl(DatabaseClient dbClient, 
                                             DeviceDao deviceDao, 
                                             CommunityDao communityDao) {
         this.dbClient = dbClient;
@@ -36,14 +36,14 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
     
     @Override
     public Map<String, List<String>> detectAndStoreCommunitiesWithGraph(List<Device> devices) {
-        logger.info("Starting heterogeneous graph-based community detection for {} devices", devices.size());
+        logger.info("Starting optimized heterogeneous graph-based community detection for {} devices", devices.size());
         
         // First, save all devices to the database
         List<Device> savedDevices = deviceDao.saveAll(devices);
         logger.debug("Saved {} devices to database", savedDevices.size());
         
-        // Create heterogeneous graph nodes and edges
-        createHeterogeneousGraphNodesAndEdges(savedDevices);
+        // Create heterogeneous graph nodes and edges efficiently
+        createOptimizedHeterogeneousGraphNodesAndEdges(savedDevices);
         
         // Detect communities using heterogeneous graph queries
         Map<String, List<String>> communities = detectAllCommunitiesWithConnectedComponents();
@@ -51,7 +51,7 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
         // Store communities in database
         storeCommunities(communities);
         
-        logger.info("Heterogeneous graph-based community detection completed. Found {} communities", communities.size());
+        logger.info("Optimized heterogeneous graph-based community detection completed. Found {} communities", communities.size());
         return communities;
     }
     
@@ -187,14 +187,14 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
                 List<String> members = resultSet.getStringList("members");
                 
                 if (members.size() > 1) {
-                    String communityId = "HETERO_GRAPH_COMPONENT_" + communityIndex;
+                    String communityId = "OPT_HETERO_GRAPH_COMPONENT_" + communityIndex;
                     communities.put(communityId, members);
                     communityIndex++;
                 }
             }
         }
         
-        logger.debug("Heterogeneous connected components algorithm found {} communities", communities.size());
+        logger.debug("Optimized heterogeneous connected components algorithm found {} communities", communities.size());
         return communities;
     }
     
@@ -303,7 +303,6 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
         }
         
         // For now, return empty list if no direct connection
-        // In a real implementation, you would implement BFS using multiple queries
         logger.debug("No direct path found between {} and {} in heterogeneous graph", fromDeviceId, toDeviceId);
         return Collections.emptyList();
     }
@@ -333,7 +332,7 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
     
     @Override
     public Map<String, List<String>> rebuildAllCommunitiesWithGraph() {
-        logger.info("Rebuilding all communities using heterogeneous graph algorithms");
+        logger.info("Rebuilding all communities using optimized heterogeneous graph algorithms");
         
         // Clear existing communities and graph edges
         clearAllCommunities();
@@ -347,9 +346,9 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
             return new HashMap<>();
         }
         
-        // Create heterogeneous graph nodes and edges for ALL devices
-        logger.info("Creating heterogeneous graph nodes and edges for all {} devices in database", allDevices.size());
-        createHeterogeneousGraphNodesAndEdgesForAllDevices(allDevices);
+        // Create heterogeneous graph nodes and edges for ALL devices efficiently
+        logger.info("Creating optimized heterogeneous graph nodes and edges for all {} devices in database", allDevices.size());
+        createOptimizedHeterogeneousGraphNodesAndEdgesForAllDevices(allDevices);
         
         // Detect communities using the complete heterogeneous graph
         Map<String, List<String>> communities = detectAllCommunitiesWithConnectedComponents();
@@ -357,18 +356,15 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
         // Store communities in database
         storeCommunities(communities);
         
-        logger.info("Global heterogeneous community detection completed. Found {} communities", communities.size());
+        logger.info("Global optimized heterogeneous community detection completed. Found {} communities", communities.size());
         return communities;
     }
     
     /**
-     * Create heterogeneous graph nodes and edges for a list of devices.
+     * Create heterogeneous graph nodes and edges efficiently by collecting unique attributes first.
      */
-    private void createHeterogeneousGraphNodesAndEdges(List<Device> devices) {
-        logger.debug("Creating heterogeneous graph nodes and edges for {} devices", devices.size());
-        
-        List<Mutation> mutations = new ArrayList<>();
-        Instant now = Instant.now();
+    private void createOptimizedHeterogeneousGraphNodesAndEdges(List<Device> devices) {
+        logger.debug("Creating optimized heterogeneous graph nodes and edges for {} devices", devices.size());
         
         // Process network attributes for all devices
         for (Device device : devices) {
@@ -381,25 +377,73 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
             
             // Update device with processed attributes
             deviceDao.update(device);
-            
-            // Create attribute nodes and device-attribute edges
-            createAttributeNodesAndEdges(device, mutations, now);
+        }
+        
+        // Collect unique attribute values
+        Set<String> uniqueSsids = new HashSet<>();
+        Set<String> uniqueSubnets = new HashSet<>();
+        Set<String> uniqueMacPrefixes = new HashSet<>();
+        Set<String> uniqueIps = new HashSet<>();
+        
+        for (Device device : devices) {
+            if (device.getSsid() != null && !device.getSsid().isEmpty()) {
+                uniqueSsids.add(device.getSsid());
+            }
+            if (device.getSubnet() != null && !device.getSubnet().isEmpty()) {
+                uniqueSubnets.add(device.getSubnet());
+            }
+            if (device.getMacPrefix() != null && !device.getMacPrefix().isEmpty()) {
+                uniqueMacPrefixes.add(device.getMacPrefix());
+            }
+            if (device.getIp() != null && !device.getIp().isEmpty()) {
+                uniqueIps.add(device.getIp());
+            }
+        }
+        
+        List<Mutation> mutations = new ArrayList<>();
+        Instant now = Instant.now();
+        
+        // Create attribute nodes (one per unique value)
+        for (String ssid : uniqueSsids) {
+            mutations.add(createAttributeNodeMutation("ssid_nodes", ssid, now));
+        }
+        for (String subnet : uniqueSubnets) {
+            mutations.add(createAttributeNodeMutation("subnet_nodes", subnet, now));
+        }
+        for (String macPrefix : uniqueMacPrefixes) {
+            mutations.add(createAttributeNodeMutation("mac_prefix_nodes", macPrefix, now));
+        }
+        for (String ip : uniqueIps) {
+            mutations.add(createAttributeNodeMutation("ip_nodes", ip, now));
+        }
+        
+        // Create device-attribute edges
+        for (Device device : devices) {
+            if (device.getSsid() != null && !device.getSsid().isEmpty()) {
+                mutations.add(createDeviceAttributeEdgeMutation("device_ssid_edges", device.getDeviceId(), device.getSsid(), now));
+            }
+            if (device.getSubnet() != null && !device.getSubnet().isEmpty()) {
+                mutations.add(createDeviceAttributeEdgeMutation("device_subnet_edges", device.getDeviceId(), device.getSubnet(), now));
+            }
+            if (device.getMacPrefix() != null && !device.getMacPrefix().isEmpty()) {
+                mutations.add(createDeviceAttributeEdgeMutation("device_mac_prefix_edges", device.getDeviceId(), device.getMacPrefix(), now));
+            }
+            if (device.getIp() != null && !device.getIp().isEmpty()) {
+                mutations.add(createDeviceAttributeEdgeMutation("device_ip_edges", device.getDeviceId(), device.getIp(), now));
+            }
         }
         
         if (!mutations.isEmpty()) {
             writeMutationsInBatches(mutations);
-            logger.debug("Created {} heterogeneous graph nodes and edges", mutations.size());
+            logger.debug("Created {} optimized heterogeneous graph nodes and edges", mutations.size());
         }
     }
     
     /**
-     * Create heterogeneous graph nodes and edges for ALL devices in the database.
+     * Create heterogeneous graph nodes and edges for ALL devices in the database efficiently.
      */
-    private void createHeterogeneousGraphNodesAndEdgesForAllDevices(List<Device> allDevices) {
-        logger.info("Creating heterogeneous graph nodes and edges for all {} devices in database", allDevices.size());
-        
-        List<Mutation> mutations = new ArrayList<>();
-        Instant now = Instant.now();
+    private void createOptimizedHeterogeneousGraphNodesAndEdgesForAllDevices(List<Device> allDevices) {
+        logger.info("Creating optimized heterogeneous graph nodes and edges for all {} devices in database", allDevices.size());
         
         // Process network attributes for all devices
         for (Device device : allDevices) {
@@ -412,45 +456,66 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
             
             // Update device with processed attributes
             deviceDao.update(device);
-            
-            // Create attribute nodes and device-attribute edges
-            createAttributeNodesAndEdges(device, mutations, now);
+        }
+        
+        // Collect unique attribute values
+        Set<String> uniqueSsids = new HashSet<>();
+        Set<String> uniqueSubnets = new HashSet<>();
+        Set<String> uniqueMacPrefixes = new HashSet<>();
+        Set<String> uniqueIps = new HashSet<>();
+        
+        for (Device device : allDevices) {
+            if (device.getSsid() != null && !device.getSsid().isEmpty()) {
+                uniqueSsids.add(device.getSsid());
+            }
+            if (device.getSubnet() != null && !device.getSubnet().isEmpty()) {
+                uniqueSubnets.add(device.getSubnet());
+            }
+            if (device.getMacPrefix() != null && !device.getMacPrefix().isEmpty()) {
+                uniqueMacPrefixes.add(device.getMacPrefix());
+            }
+            if (device.getIp() != null && !device.getIp().isEmpty()) {
+                uniqueIps.add(device.getIp());
+            }
+        }
+        
+        List<Mutation> mutations = new ArrayList<>();
+        Instant now = Instant.now();
+        
+        // Create attribute nodes (one per unique value)
+        for (String ssid : uniqueSsids) {
+            mutations.add(createAttributeNodeMutation("ssid_nodes", ssid, now));
+        }
+        for (String subnet : uniqueSubnets) {
+            mutations.add(createAttributeNodeMutation("subnet_nodes", subnet, now));
+        }
+        for (String macPrefix : uniqueMacPrefixes) {
+            mutations.add(createAttributeNodeMutation("mac_prefix_nodes", macPrefix, now));
+        }
+        for (String ip : uniqueIps) {
+            mutations.add(createAttributeNodeMutation("ip_nodes", ip, now));
+        }
+        
+        // Create device-attribute edges
+        for (Device device : allDevices) {
+            if (device.getSsid() != null && !device.getSsid().isEmpty()) {
+                mutations.add(createDeviceAttributeEdgeMutation("device_ssid_edges", device.getDeviceId(), device.getSsid(), now));
+            }
+            if (device.getSubnet() != null && !device.getSubnet().isEmpty()) {
+                mutations.add(createDeviceAttributeEdgeMutation("device_subnet_edges", device.getDeviceId(), device.getSubnet(), now));
+            }
+            if (device.getMacPrefix() != null && !device.getMacPrefix().isEmpty()) {
+                mutations.add(createDeviceAttributeEdgeMutation("device_mac_prefix_edges", device.getDeviceId(), device.getMacPrefix(), now));
+            }
+            if (device.getIp() != null && !device.getIp().isEmpty()) {
+                mutations.add(createDeviceAttributeEdgeMutation("device_ip_edges", device.getDeviceId(), device.getIp(), now));
+            }
         }
         
         // Write all mutations in batches to avoid overwhelming Spanner
         if (!mutations.isEmpty()) {
             writeMutationsInBatches(mutations);
-            logger.info("Created {} heterogeneous graph nodes and edges for all devices", mutations.size());
-        }
-    }
-    
-    /**
-     * Create attribute nodes and device-attribute edges for a single device.
-     * Uses INSERT OR UPDATE to handle duplicate attribute nodes and edges gracefully.
-     */
-    private void createAttributeNodesAndEdges(Device device, List<Mutation> mutations, Instant now) {
-        // Create SSID node and edge
-        if (device.getSsid() != null && !device.getSsid().isEmpty()) {
-            mutations.add(createAttributeNodeMutationWithIgnore("ssid_nodes", device.getSsid(), now));
-            mutations.add(createDeviceAttributeEdgeMutationWithIgnore("device_ssid_edges", device.getDeviceId(), device.getSsid(), now));
-        }
-        
-        // Create subnet node and edge
-        if (device.getSubnet() != null && !device.getSubnet().isEmpty()) {
-            mutations.add(createAttributeNodeMutationWithIgnore("subnet_nodes", device.getSubnet(), now));
-            mutations.add(createDeviceAttributeEdgeMutationWithIgnore("device_subnet_edges", device.getDeviceId(), device.getSubnet(), now));
-        }
-        
-        // Create MAC prefix node and edge
-        if (device.getMacPrefix() != null && !device.getMacPrefix().isEmpty()) {
-            mutations.add(createAttributeNodeMutationWithIgnore("mac_prefix_nodes", device.getMacPrefix(), now));
-            mutations.add(createDeviceAttributeEdgeMutationWithIgnore("device_mac_prefix_edges", device.getDeviceId(), device.getMacPrefix(), now));
-        }
-        
-        // Create IP node and edge
-        if (device.getIp() != null && !device.getIp().isEmpty()) {
-            mutations.add(createAttributeNodeMutationWithIgnore("ip_nodes", device.getIp(), now));
-            mutations.add(createDeviceAttributeEdgeMutationWithIgnore("device_ip_edges", device.getDeviceId(), device.getIp(), now));
+            logger.info("Created {} optimized heterogeneous graph nodes and edges for all devices", mutations.size());
         }
     }
     
@@ -466,36 +531,11 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
     }
     
     /**
-     * Create an attribute node mutation with INSERT OR UPDATE to handle duplicates.
-     * This prevents errors when multiple devices share the same attribute value.
-     */
-    private Mutation createAttributeNodeMutationWithIgnore(String tableName, String attributeValue, Instant timestamp) {
-        String columnName = getAttributeColumnNameForTable(tableName);
-        return Mutation.newInsertOrUpdateBuilder(tableName)
-            .set(columnName).to(attributeValue)
-            .set("created_at").to(com.google.cloud.Timestamp.ofTimeMicroseconds(timestamp.toEpochMilli() * 1000))
-            .build();
-    }
-    
-    /**
      * Create a device-attribute edge mutation.
      */
     private Mutation createDeviceAttributeEdgeMutation(String tableName, String deviceId, String attributeValue, Instant timestamp) {
         String attributeColumnName = getAttributeColumnNameForEdgeTable(tableName);
         return Mutation.newInsertBuilder(tableName)
-            .set("device_id").to(deviceId)
-            .set(attributeColumnName).to(attributeValue)
-            .set("created_at").to(com.google.cloud.Timestamp.ofTimeMicroseconds(timestamp.toEpochMilli() * 1000))
-            .build();
-    }
-    
-    /**
-     * Create a device-attribute edge mutation with INSERT OR UPDATE to handle duplicates.
-     * This prevents errors when the same device-attribute edge is created multiple times.
-     */
-    private Mutation createDeviceAttributeEdgeMutationWithIgnore(String tableName, String deviceId, String attributeValue, Instant timestamp) {
-        String attributeColumnName = getAttributeColumnNameForEdgeTable(tableName);
-        return Mutation.newInsertOrUpdateBuilder(tableName)
             .set("device_id").to(deviceId)
             .set(attributeColumnName).to(attributeValue)
             .set("created_at").to(com.google.cloud.Timestamp.ofTimeMicroseconds(timestamp.toEpochMilli() * 1000))
@@ -557,7 +597,7 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
         int communityIndex = 1;
         for (Map.Entry<String, Set<String>> entry : groups.entrySet()) {
             if (entry.getValue().size() > 1) {
-                String communityId = communityType + "_HETERO_GRAPH_" + communityIndex;
+                String communityId = communityType + "_OPT_HETERO_GRAPH_" + communityIndex;
                 communities.put(communityId, new ArrayList<>(entry.getValue()));
                 communityIndex++;
             }
@@ -698,7 +738,7 @@ public class HeterogeneousGraphCommunityDetectionServiceImpl implements GraphCom
                 logger.debug("Wrote batch of {} mutations ({} to {})", batch.size(), i, endIndex - 1);
             } catch (Exception e) {
                 logger.error("Failed to write mutation batch {} to {}: {}", i, endIndex - 1, e.getMessage());
-                throw new RuntimeException("Failed to write heterogeneous graph edges", e);
+                throw new RuntimeException("Failed to write optimized heterogeneous graph edges", e);
             }
         }
     }
