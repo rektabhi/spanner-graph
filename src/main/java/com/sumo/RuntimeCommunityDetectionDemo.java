@@ -30,8 +30,8 @@ public class RuntimeCommunityDetectionDemo {
     
     private static final Logger logger = LoggerFactory.getLogger(RuntimeCommunityDetectionDemo.class);
     private static final String CSV_FILE_PATH = "mock_devices_1m.csv";
-    private static final int BATCH_SIZE = 100; // Process devices in batches to avoid resource exhaustion
-    private static final int MAX_SIZE = 1100; // Maximum number of devices to process for demo purposes
+    private static final int BATCH_SIZE = 500; // Process devices in batches to avoid resource exhaustion
+    private static final int MAX_SIZE = 100000; // Maximum number of devices to process for demo purposes
     
     public static void main(String[] args) {
         logger.info("Starting Runtime Community Detection Demo");
